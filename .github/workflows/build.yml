@@ -1,0 +1,144 @@
+name: Build Netcore N30 Pro firmware
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: n30pro-build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPOSITORY: https://github.com/padavanonly/immortalwrt-mt798x-6.6.git
+  SOURCE_BRANCH: openwrt-24.10-6.6
+  # Revisions verified on 2026-07-15. Update deliberately, as a set, when needed.
+  SOURCE_COMMIT: 64cd047d99d1e89bbc0856fd4621c08b4971678c
+  PASSWALL2_REPOSITORY: https://github.com/Openwrt-Passwall/openwrt-passwall2.git
+  PASSWALL2_COMMIT: 5cded3821f7da942f1409eeaa28d0b2c31f55ba0
+  PASSWALL_PACKAGES_REPOSITORY: https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git
+  PASSWALL_PACKAGES_COMMIT: 9d391e568d61c43be683b747b9ede811a61fc315
+  OPENCLASH_REPOSITORY: https://github.com/vernesong/OpenClash.git
+  OPENCLASH_COMMIT: 1c8e8cb8eaad0edaae11928c9b802b7d613c0f97
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out builder repository
+        uses: actions/checkout@v4
+
+      - name: Prepare build environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get update
+          sudo apt-get install -y \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk \
+            gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool \
+            lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev \
+            libmpc-dev libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev \
+            libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp ninja-build \
+            p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
+            python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig \
+            texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
+          sudo timedatectl set-timezone "$TZ"
+
+      - name: Fetch ImmortalWrt source
+        working-directory: ${{ runner.temp }}
+        run: |
+          git init openwrt
+          git -C openwrt remote add origin "$SOURCE_REPOSITORY"
+          git -C openwrt fetch --depth=1 origin "$SOURCE_COMMIT"
+          git -C openwrt checkout --detach FETCH_HEAD
+          test "$(git -C openwrt rev-parse HEAD)" = "$SOURCE_COMMIT"
+
+      - name: Add N30 Pro device support and first-boot settings
+        run: |
+          OPENWRT="${{ runner.temp }}/openwrt"
+          install -Dm644 dts/mt7981b-netcore-n30pro.dts "$OPENWRT/target/linux/mediatek/dts/mt7981b-netcore-n30pro.dts"
+          install -Dm644 dts/mt7981b-netis-common.dtsi "$OPENWRT/target/linux/mediatek/dts/mt7981b-netis-common.dtsi"
+          cat target/filogic-netcore-n30pro.mk >> "$OPENWRT/target/linux/mediatek/image/filogic.mk"
+          install -Dm755 files/etc/uci-defaults/99-n30pro-defaults "$OPENWRT/files/etc/uci-defaults/99-n30pro-defaults"
+
+      - name: Install official feeds and third-party package sources
+        working-directory: ${{ runner.temp }}/openwrt
+        run: |
+          fetch_checkout() {
+            git init "$2"
+            git -C "$2" remote add origin "$1"
+            git -C "$2" fetch --depth=1 origin "$3"
+            git -C "$2" checkout --detach FETCH_HEAD
+          }
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          fetch_checkout "$PASSWALL_PACKAGES_REPOSITORY" package/passwall-packages "$PASSWALL_PACKAGES_COMMIT"
+          fetch_checkout "$PASSWALL2_REPOSITORY" package/passwall2 "$PASSWALL2_COMMIT"
+          fetch_checkout "$OPENCLASH_REPOSITORY" package/openclash "$OPENCLASH_COMMIT"
+
+      - name: Apply and verify image configuration
+        working-directory: ${{ runner.temp }}/openwrt
+        run: |
+          cp "$GITHUB_WORKSPACE/config/n30pro.config" .config
+          make defconfig
+          for package in \
+            luci luci-app-passwall2 luci-app-openclash sing-box xray-core \
+            luci-app-ddns luci-app-upnp luci-app-samba4 luci-app-ttyd; do
+            grep -q "^CONFIG_PACKAGE_${package}=y" .config || {
+              echo "Required package is absent from the resolved configuration: ${package}"
+              exit 1
+            }
+          done
+          grep -q '^CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n30pro=y' .config
+
+      - name: Download sources
+        working-directory: ${{ runner.temp }}/openwrt
+        run: |
+          make download -j"$(nproc)"
+          find dl -type f -size -1024c -delete
+
+      - name: Compile firmware
+        working-directory: ${{ runner.temp }}/openwrt
+        run: |
+          make -j"$(nproc)" || make -j1 V=s
+
+      - name: Prepare firmware files
+        id: firmware
+        run: |
+          SOURCE_DIR="${{ runner.temp }}/openwrt/bin/targets/mediatek/filogic"
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          find "$SOURCE_DIR" -maxdepth 1 -type f -name '*netcore_n30pro*' -exec cp -v {} "$GITHUB_WORKSPACE/output/" \;
+          test -n "$(find "$GITHUB_WORKSPACE/output" -maxdepth 1 -type f -name '*sysupgrade.itb' -print -quit)"
+          echo "date=$(TZ=$TZ date +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netcore-n30pro-${{ steps.firmware.outputs.date }}
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish firmware release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: n30pro-${{ github.run_number }}
+          name: Netcore N30 Pro firmware ${{ steps.firmware.outputs.date }}
+          body: |
+            Netcore N30 Pro firmware built from the pinned ImmortalWrt 24.10 / Linux 6.6 source.
+
+            Default LAN: `192.168.6.1`
+            LuCI: HTTP only
+            Initial login: `root` with no password
+
+            Flash only the `*sysupgrade.itb` image on a compatible N30 Pro setup.
+          files: output/*
+          fail_on_unmatched_files: true

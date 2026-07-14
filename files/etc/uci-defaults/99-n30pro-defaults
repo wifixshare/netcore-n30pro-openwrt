@@ -1,0 +1,17 @@
+#!/bin/sh
+# Applied once on the first boot, then removed by OpenWrt's uci-defaults service.
+
+uci set network.lan.ipaddr='192.168.6.1'
+uci commit network
+
+# Keep LuCI on plain HTTP only.  Removing the HTTPS listener also prevents a
+# later installed TLS module from exposing port 443 with the factory certificate.
+uci -q delete uhttpd.main.listen_https
+uci set uhttpd.main.redirect_https='0'
+uci commit uhttpd
+rm -f /etc/uhttpd.crt /etc/uhttpd.key
+
+# The requested initial login is root with a blank password.
+passwd -d root 2>/dev/null || true
+
+exit 0

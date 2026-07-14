@@ -1,0 +1,9 @@
+.DS_Store
+openwrt/
+bin/
+dl/
+build_dir/
+staging_dir/
+tmp/
+.config
+.config.old
