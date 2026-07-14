@@ -99,16 +99,67 @@ jobs:
           done
           grep -q '^CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n30pro=y' .config
 
+      - name: Enable compiler cache
+        run: |
+          mkdir -p "${{ runner.temp }}/openwrt-ccache"
+          echo "CCACHE_DIR=${{ runner.temp }}/openwrt-ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_COMPRESS=true" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=2G" >> "$GITHUB_ENV"
+
+      - name: Restore OpenWrt toolchain and compiler cache
+        id: toolchain-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/openwrt/staging_dir/host
+            ${{ runner.temp }}/openwrt/staging_dir/hostpkg
+            ${{ runner.temp }}/openwrt/staging_dir/toolchain-*
+            ${{ runner.temp }}/openwrt/build_dir/host
+            ${{ runner.temp }}/openwrt/build_dir/toolchain-*
+            ${{ runner.temp }}/openwrt-ccache
+          key: openwrt-toolchain-v1-${{ runner.os }}-${{ env.SOURCE_COMMIT }}-${{ hashFiles('config/n30pro.config', 'target/filogic-netcore-n30pro.mk') }}
+          restore-keys: |
+            openwrt-toolchain-v1-${{ runner.os }}-${{ env.SOURCE_COMMIT }}-
+
+      - name: Restore downloaded source cache
+        id: downloads-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/openwrt/dl
+          key: openwrt-downloads-v1-${{ runner.os }}-${{ env.SOURCE_COMMIT }}-${{ env.PASSWALL2_COMMIT }}-${{ env.PASSWALL_PACKAGES_COMMIT }}-${{ env.OPENCLASH_COMMIT }}
+          restore-keys: |
+            openwrt-downloads-v1-${{ runner.os }}-${{ env.SOURCE_COMMIT }}-
+
       - name: Download sources
         working-directory: ${{ runner.temp }}/openwrt
         run: |
           make download -j"$(nproc)"
           find dl -type f -size -1024c -delete
 
+      - name: Save downloaded source cache
+        if: success() && steps.downloads-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/openwrt/dl
+          key: ${{ steps.downloads-cache.outputs.cache-primary-key }}
+
       - name: Compile firmware
         working-directory: ${{ runner.temp }}/openwrt
         run: |
           make -j"$(nproc)" || make -j1 V=s
+
+      - name: Save OpenWrt toolchain and compiler cache
+        if: success() && steps.toolchain-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/openwrt/staging_dir/host
+            ${{ runner.temp }}/openwrt/staging_dir/hostpkg
+            ${{ runner.temp }}/openwrt/staging_dir/toolchain-*
+            ${{ runner.temp }}/openwrt/build_dir/host
+            ${{ runner.temp }}/openwrt/build_dir/toolchain-*
+            ${{ runner.temp }}/openwrt-ccache
+          key: ${{ steps.toolchain-cache.outputs.cache-primary-key }}
 
       - name: Prepare firmware files
         id: firmware

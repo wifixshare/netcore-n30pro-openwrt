@@ -31,6 +31,10 @@ workflow**.  On success, the firmware is attached both to the workflow
 artifact and to a GitHub Release. Use the `*netcore_n30pro*sysupgrade.itb`
 image.
 
+The workflow caches the downloaded source archives, host build tools, target
+toolchain and ccache objects. The first build initializes the cache; later
+builds with the same ImmortalWrt source revision reuse it automatically.
+
 ## Device support source
 
 The DTS and image definition are derived from
