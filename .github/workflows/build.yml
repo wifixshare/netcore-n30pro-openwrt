@@ -184,7 +184,7 @@ jobs:
           make -j"$(nproc)" || make -j1 V=s
 
       - name: Save OpenWrt toolchain and compiler cache
-        if: success() && steps.toolchain-cache.outputs.cache-hit != 'true'
+        if: always() && steps.toolchain-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
