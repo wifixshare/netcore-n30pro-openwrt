@@ -77,15 +77,15 @@ jobs:
           path = Path(sys.argv[1])
           source = path.read_text()
           marker = "+static int mtk_wifi_num = 0;"
-          definitions = (
-              "+#define HIT_BIND_FORCE_TO_CPU 0x16\\n"
-              "+#define MTK_FE_START_RESET 0x2000\\n"
-              "+#define MTK_FE_RESET_DONE 0x2001\\n"
-              "+#define MTK_WIFI_RESET_DONE 0x2002\\n"
-              "+#define MTK_WIFI_CHIP_ONLINE 0x2003\\n"
-              "+#define MTK_WIFI_CHIP_OFFLINE 0x2004\\n"
-              "+#define MTK_FE_RESET_NAT_DONE 0x4001\\n"
-          )
+          definitions = chr(10).join((
+              "+#define HIT_BIND_FORCE_TO_CPU 0x16",
+              "+#define MTK_FE_START_RESET 0x2000",
+              "+#define MTK_FE_RESET_DONE 0x2001",
+              "+#define MTK_WIFI_RESET_DONE 0x2002",
+              "+#define MTK_WIFI_CHIP_ONLINE 0x2003",
+              "+#define MTK_WIFI_CHIP_OFFLINE 0x2004",
+              "+#define MTK_FE_RESET_NAT_DONE 0x4001",
+          )) + chr(10)
           if "+#define HIT_BIND_FORCE_TO_CPU 0x16" not in source:
               if source.count(marker) != 1:
                   raise SystemExit(f"Unexpected HNAT patch marker count: {source.count(marker)}")
