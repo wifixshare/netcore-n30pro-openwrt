@@ -72,6 +72,7 @@ jobs:
           # patch, instead of relying on a separate kernel-patch context.
           python3 - "$HNAT_PATCH" <<'PY'
           from pathlib import Path
+          import re
           import sys
 
           path = Path(sys.argv[1])
@@ -89,7 +90,16 @@ jobs:
           if "+#define HIT_BIND_FORCE_TO_CPU 0x16" not in source:
               if source.count(marker) != 1:
                   raise SystemExit(f"Unexpected HNAT patch marker count: {source.count(marker)}")
-              path.write_text(source.replace(marker, definitions + marker))
+              hunk_start = source.rfind(chr(10) + "@@ ", 0, source.index(marker)) + 1
+              hunk_end = source.find(chr(10), hunk_start)
+              hunk = source[hunk_start:hunk_end]
+              match = re.fullmatch(r"@@ -(\d+),(\d+) \+(\d+),(\d+) @@", hunk)
+              if not match:
+                  raise SystemExit(f"Unexpected HNAT patch hunk header: {hunk}")
+              old_start, old_count, new_start, new_count = map(int, match.groups())
+              replacement_hunk = f"@@ -{old_start},{old_count} +{new_start},{new_count + len(definitions.splitlines())} @@"
+              updated = source.replace(marker, definitions + marker)
+              path.write_text(updated.replace(hunk, replacement_hunk, 1))
           PY
           cat target/filogic-netcore-n30pro.mk >> "$OPENWRT/target/linux/mediatek/image/filogic.mk"
           install -Dm755 files/etc/uci-defaults/99-n30pro-defaults "$OPENWRT/files/etc/uci-defaults/99-n30pro-defaults"
