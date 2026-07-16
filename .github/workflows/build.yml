@@ -207,13 +207,6 @@ jobs:
             ${{ runner.temp }}/openwrt/build_dir/toolchain-*
           key: ${{ steps.toolchain-cache.outputs.cache-primary-key }}
 
-      - name: Reclaim toolchain build space
-        run: |
-          rm -rf \
-            "${{ runner.temp }}/openwrt/build_dir/host" \
-            "${{ runner.temp }}/openwrt/build_dir"/toolchain-*
-          df -h
-
       - name: Compile firmware
         working-directory: ${{ runner.temp }}/openwrt
         run: |
